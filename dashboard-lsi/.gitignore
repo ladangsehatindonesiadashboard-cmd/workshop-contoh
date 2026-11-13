@@ -1,0 +1,22 @@
+# Rahasia & environment
+.env
+.env.*
+!.env.example
+*.pem
+# Data mentah / ekspor Accurate (jangan di-commit)
+data/
+*.xlsx
+*.csv
+snapshots/
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+# Vercel
+.vercel
