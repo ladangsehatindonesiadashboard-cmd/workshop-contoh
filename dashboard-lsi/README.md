@@ -20,7 +20,7 @@ dashboard-lsi/
 │   ├── login-gate/index.ts  # edge function: captcha, lockout per (email, IP), sesi Auth
 │   ├── sync-accurate/       # edge function sinkron Accurate (pull/ingest/OAuth callback) + schedule.sql
 │   ├── oauth.py             # helper OAuth di box (authorize URL, exchange, refresh, dbs)
-│   ├── acc.py, box_sync.py, start_sync.sh
+│   ├── acc.py, box_sync.py, start_sync.sh  # loop per jam di box; sudah dipensiunkan
 ├── supabase/
 │   └── schema.sql           # skema + policy RLS yang diharuskan kode (idempoten)
 ├── scripts/
@@ -31,6 +31,10 @@ dashboard-lsi/
 ├── .env.example             # contoh variabel environment (tanpa rahasia)
 └── .gitignore
 ```
+
+Sinkron penjualan per jam sekarang hanya job pg_cron `sync-accurate-hourly`
+(`sync/sync-accurate/schedule.sql` → edge function `sync-accurate`, mode `pull`).
+Loop `box_sync.py` di mesin terpisah (`start_sync.sh`) sudah dipensiunkan.
 
 ## Cara kerja
 
@@ -84,8 +88,9 @@ rahasia dilewati):
    sudah dicabut atau milik user lain ditolak.
 2. Vault `accurate_sync_key` **sudah ada** di database live. Jangan buat ulang.
    Rotasi tetap disarankan, terpisah dari deploy ini: SHA-256 tanpa salt dari kunci lama pernah
-   tersaji publik, jadi kunci yang lemah/tebakan bisa dipulihkan. Setelah rotasi, perbarui
-   `sync/.sync_key` di box (cron membaca Vault, jadi otomatis ikut).
+   tersaji publik, jadi kunci yang lemah/tebakan bisa dipulihkan. Job `sync-accurate-hourly`
+   membaca kunci dari Vault, jadi rotasi ikut tanpa mengubah kode. Loop `box_sync.py` di box
+   sudah dipensiunkan; `sync/.sync_key` di mesin itu tidak dipakai lagi.
 3. `accurate_oauth_state` **wajib dibuat** (belum ada di live):
    `select vault.create_secret('<OAUTH_STATE>', 'accurate_oauth_state');`
    Nilai dari `openssl rand -hex 32`.

@@ -87,7 +87,14 @@ async function apiGet(db: Db, path: string, params: Record<string, string | stri
   for (const [k, v] of Object.entries(params)) for (const x of Array.isArray(v) ? v : [v]) qs.append(k, x);
   let url = `${db.host}${path}?${qs}`;
   for (let attempt = 0; attempt < 5; attempt++) {
-    const r = await fetch(url, { method: "GET", redirect: "manual", headers: { Authorization: "Bearer " + db.token, "X-Session-ID": db.session } });
+    let r: Response;
+    try {
+      r = await fetch(url, { method: "GET", redirect: "manual", headers: { Authorization: "Bearer " + db.token, "X-Session-ID": db.session } });
+    } catch (e) { // koneksi putus / reset dari server Accurate: tunggu lalu coba lagi
+      if (attempt === 4) throw e;
+      await new Promise((s) => setTimeout(s, 1500 * (attempt + 1)));
+      continue;
+    }
     if (r.status === 308 || r.status === 307) { const loc = r.headers.get("location"); if (loc) { url = new URL(loc, url).toString(); db.host = new URL(url).origin; continue; } }
     if ([429, 502, 503, 504].includes(r.status)) { await new Promise((s) => setTimeout(s, 1500 * (attempt + 1))); continue; }
     const j = await r.json();
@@ -124,9 +131,9 @@ async function syncKind(db: Db, kind: string, period: string, deadline: number, 
   const have = new Map((await sql`select id, last_update from accurate_sync.docs where db_id=${DB_ID} and kind=${kind} and trans_date between ${isoFrom} and ${isoTo}`).map((r: any) => [Number(r.id), r.last_update]));
   const todo = list.filter((x) => have.get(Number(x.id)) !== x.lastUpdate);
   let done = 0, complete = true;
-  for (let i = 0; i < todo.length; i += 4) {
+  for (let i = 0; i < todo.length; i += 2) {
     if (Date.now() > deadline) { complete = false; break; }
-    const batch = todo.slice(i, i + 4);
+    const batch = todo.slice(i, i + 2);
     const det = await Promise.all(batch.map((x) => apiGet(db, `/accurate/api/${kind}/detail.do`, { id: String(x.id) })));
     for (let k = 0; k < batch.length; k++) {
       const x = batch[k], d = trim(kind, det[k].d);
@@ -147,7 +154,9 @@ async function ensureItems(db: Db) {
   let n = 0;
   for (let page = 1; ; page++) {
     const j = await apiGet(db, "/accurate/api/item/list.do", { fields: "id,no,name,itemCategory", "sp.page": String(page), "sp.pageSize": "100" });
-    for (const x of j.d) { await sql`insert into accurate_sync.items (id,no,name,cat) values (${x.id},${x.no},${x.name},${x.itemCategory?.name ?? ""}) on conflict (id) do update set no=excluded.no,name=excluded.name,cat=excluded.cat,updated_at=now()`; n++; }
+    const rows = j.d.map((x: any) => ({ id: x.id, no: x.no ?? "", name: x.name ?? "", cat: x.itemCategory?.name ?? "" }));
+    if (rows.length) await sql`insert into accurate_sync.items ${sql(rows, "id", "no", "name", "cat")} on conflict (id) do update set no=excluded.no,name=excluded.name,cat=excluded.cat,updated_at=now()`;
+    n += rows.length;
     if (page >= (j.sp?.pageCount ?? 1)) break;
   }
   return n;
@@ -200,7 +209,7 @@ async function baseCustomers(): Promise<string[]> {
 function currentPeriod() { const d = new Date(Date.now() + 7 * 3600e3); return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}`; }
 
 async function pull() {
-  const deadline = Date.now() + 110_000, stats: any = {};
+  const deadline = Date.now() + 55_000, stats: any = {};
   const db = await openDb();
   const periods = [...new Set([...FIXED_PERIODS, currentPeriod()])];
   const complete: Record<string, boolean> = {};
@@ -209,6 +218,8 @@ async function pull() {
     for (const k of ["sales-invoice", "sales-return"]) ok = (await syncKind(db, k, p, deadline, stats)) && ok;
     complete[p] = ok;
   }
+  // Kalau masih ada dokumen yang belum ditarik (batas waktu), simpan progres saja; snapshot dibangun di run berikutnya.
+  if (Object.values(complete).some((c) => !c)) { stats.partial = true; return stats; }
   stats.items_refreshed = await ensureItems(db);
   let base = await baseCustomers();
   for (const p of periods) {
