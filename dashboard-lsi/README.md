@@ -56,12 +56,14 @@ Contoh: `https://<domain>/` (Oktober 2026) atau `https://<domain>/?period=2026-1
 | `data` | jsonb | seluruh data dashboard periode tsb. |
 | `updated_at` | timestamptz | waktu unggah terakhir |
 
-Row Level Security aktif dan role `anon` **tidak punya akses tabel**. Satu-satunya policy SELECT
-adalah `captcha session read`: hanya role `authenticated` yang `session_id`-nya tercatat di
-`private.captcha_sessions` (diisi `login-gate` setelah captcha + password benar) yang bisa membaca.
-Policy dan tabel pendukungnya ada di [`supabase/schema.sql`](supabase/schema.sql) — file itu
-idempoten, jalankan (ulang) kalau database dibuat dari nol atau kalau policy lama diduga masih
-terbuka: **policy SELECT untuk `anon` membuat login gate tidak ada artinya**.
+Row Level Security aktif dan role `anon` tidak punya akses tabel. Satu-satunya policy SELECT
+adalah `captcha session read` untuk role `authenticated`: `session_id` tercatat di
+`private.captcha_sessions` (diisi `login-gate` setelah captcha + password benar), sesi itu
+masih ada di `auth.sessions`, dan `user_id` sama dengan `auth.uid()`. Hak tulis serta
+TRUNCATE dicabut dari `authenticated` (RLS tidak menutup TRUNCATE); SELECT tetap lewat policy
+di atas. Policy dan tabel pendukungnya ada di [`supabase/schema.sql`](supabase/schema.sql) —
+file itu idempoten, jalankan (ulang) kalau database dibuat dari nol atau kalau policy lama
+diduga masih terbuka: **policy SELECT untuk `anon` membuat login gate tidak ada artinya**.
 
 Verifikasi cepat di SQL editor:
 
@@ -75,16 +77,21 @@ select policyname, roles, cmd, qual from pg_policies where tablename = 'dashboar
 **Urutan saat memperbarui deployment yang sudah jalan** (kode baru gagal-tertutup bila langkah
 rahasia dilewati):
 
-1. Jalankan `supabase/schema.sql` (menambah `private.login_attempts.ip` dan policy baru).
-2. Kunci `accurate_sync_key`: handler lama sudah menulis kunci asli ke Vault pada panggilan pertama yang
-   terautentikasi, jadi biasanya **sudah ada** — cek dulu
-   `select 1 from vault.secrets where name = 'accurate_sync_key';` dan hanya buat bila kosong
-   (`select vault.create_secret('<SYNC_KEY>', 'accurate_sync_key')`).
-   Rotasi tetap disarankan: SHA-256 tanpa salt dari kunci lama pernah tersaji publik, jadi kunci yang
-   lemah/tebakan bisa dipulihkan. Setelah rotasi, perbarui `sync/.sync_key` di box (cron membaca Vault,
-   jadi otomatis ikut).
-3. `select vault.create_secret('<OAUTH_STATE>', 'accurate_oauth_state')` (`openssl rand -hex 32`).
-4. Deploy ulang `login-gate` dan `sync-accurate`.
+1. Jalankan `supabase/schema.sql` di SQL editor (idempoten, aman diulang di database live).
+   Skrip menambah `private.login_attempts.ip`, mengganti policy SELECT
+   `captcha-verified sessions read snapshots` dengan `captcha session read`, dan memasang ulang
+   `public.is_captcha_session()` supaya perbandingan `session_id` bertipe uuid serta sesi yang
+   sudah dicabut atau milik user lain ditolak.
+2. Vault `accurate_sync_key` **sudah ada** di database live. Jangan buat ulang.
+   Rotasi tetap disarankan, terpisah dari deploy ini: SHA-256 tanpa salt dari kunci lama pernah
+   tersaji publik, jadi kunci yang lemah/tebakan bisa dipulihkan. Setelah rotasi, perbarui
+   `sync/.sync_key` di box (cron membaca Vault, jadi otomatis ikut).
+3. `accurate_oauth_state` **wajib dibuat** (belum ada di live):
+   `select vault.create_secret('<OAUTH_STATE>', 'accurate_oauth_state');`
+   Nilai dari `openssl rand -hex 32`.
+4. **Jangan** menjalankan ulang `sync/sync-accurate/schedule.sql` di database live. Cron yang
+   sedang berjalan memakai menit **:15**; file itu menjadwalkan menit **:05** dan mengganti isi job.
+5. Deploy ulang `login-gate` dan `sync-accurate`.
 
 | rahasia | tempat | dipakai oleh |
 |---|---|---|

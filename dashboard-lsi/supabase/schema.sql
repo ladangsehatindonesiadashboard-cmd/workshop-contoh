@@ -1,10 +1,14 @@
 -- Skema + policy yang DIHARUSKAN kode (dashboard-lsi). Jalankan di SQL editor Supabase.
--- Idempoten: aman diulang. Bagian RLS mengganti policy SELECT lama pada public.dashboard_snapshots
--- (policy "anon boleh membaca" dari README lama membuat login gate tidak ada artinya).
+-- Idempoten: aman diulang di database live. Bagian RLS membuang setiap policy SELECT/ALL lama
+-- pada public.dashboard_snapshots — termasuk policy live "captcha-verified sessions read snapshots"
+-- dan policy "anon boleh membaca" (policy anon membuat login gate tidak ada artinya) —
+-- lalu memasang "captcha session read".
 --
 -- Verifikasi keadaan live setelah menjalankan:
 --   select policyname, roles, cmd, qual from pg_policies where tablename = 'dashboard_snapshots';
---   select proname, prosecdef from pg_proc where proname = 'is_captcha_session';
+--   select proname, prosecdef, proconfig from pg_proc where proname = 'is_captcha_session';
+--   select grantee, privilege_type from information_schema.routine_privileges
+--    where routine_name = 'is_captcha_session';
 --   select grantee, privilege_type from information_schema.role_table_grants
 --    where table_name = 'dashboard_snapshots' and grantee in ('anon','authenticated');
 
@@ -21,8 +25,11 @@ create table if not exists public.dashboard_snapshots (
 create schema if not exists private;
 revoke all on schema private from anon, authenticated;
 
+-- session_id uuid, sama dengan auth.sessions.id dan klaim JWT session_id.
+-- CREATE TABLE IF NOT EXISTS tidak mengubah kolom yang sudah ada; di live kolom ini sudah uuid.
+-- Database baru harus ikut uuid, supaya badan fungsi di bawah lolos pemeriksaan tipe.
 create table if not exists private.captcha_sessions (
-  session_id text primary key,
+  session_id uuid primary key,
   user_id uuid not null,
   created_at timestamptz not null default now()
 );
@@ -45,6 +52,10 @@ create index if not exists login_attempts_email_ip_at on private.login_attempts 
 create index if not exists login_attempts_ip_at on private.login_attempts (ip, at desc);
 
 -- ---------- cek sesi untuk RLS ----------
+-- Sesi yang sudah logout/dicabut, atau milik user lain, tidak lolos.
+-- nullif + ::uuid: klaim kosong jadi null (bukan error cast), dan perbandingan
+-- uuid = text gagal di CREATE FUNCTION (42883) karena session_id live bertipe uuid.
+-- search_path kosong: setiap nama di badan wajib berkualifikasi skema.
 create or replace function public.is_captcha_session()
 returns boolean
 language sql
@@ -54,18 +65,25 @@ set search_path = ''
 as $$
   select exists (
     select 1 from private.captcha_sessions s
-    where s.session_id = (auth.jwt() ->> 'session_id')
+    join auth.sessions a on a.id = s.session_id
+    where s.session_id = nullif(auth.jwt() ->> 'session_id','')::uuid
+      and s.user_id = auth.uid()
   );
 $$;
 revoke execute on function public.is_captcha_session() from public, anon;
-grant execute on function public.is_captcha_session() to authenticated;
+grant execute on function public.is_captcha_session() to authenticated, service_role;
 
 -- ---------- RLS dashboard_snapshots ----------
 alter table public.dashboard_snapshots enable row level security;
 revoke all on public.dashboard_snapshots from anon;
 grant select on public.dashboard_snapshots to authenticated;
+-- RLS tidak mencakup TRUNCATE. Cabut hak tulis; SELECT untuk authenticated tetap,
+-- dan barisnya disaring policy "captcha session read".
+revoke insert, update, delete, truncate, references, trigger on public.dashboard_snapshots from authenticated;
 
--- Buang SEMUA policy SELECT/ALL lama (termasuk policy anon), lalu pasang satu policy baru.
+-- Buang SEMUA policy SELECT/ALL lama (nama live: "captcha-verified sessions read snapshots",
+-- plus policy anon bila ada), lalu pasang satu policy baru. Mengulang skrip membuang
+-- "captcha session read" yang baru dipasang, lalu membuatnya lagi.
 do $$
 declare p record;
 begin
