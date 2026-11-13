@@ -5,12 +5,15 @@
 //   POST {action:"login", pass, email, password}                -> sesi Supabase Auth bila pass captcha valid & password benar
 // Setelah login sukses, session_id dari JWT dicatat di private.captcha_sessions. RLS dashboard_snapshots hanya mengizinkan
 // sesi yang tercatat di sana, jadi sesi dari /auth/v1/token langsung (tanpa captcha) tidak bisa membaca data.
+// Catatan: captcha + lockout di function ini TIDAK bisa menghentikan panggilan langsung ke /auth/v1/token (publishable key
+// publik). Penguncian di titik itu adalah setelan project: Auth > Rate Limits, dan (Teams/Enterprise) Auth Hook
+// "Password Verification Attempt". Yang ditahan di sisi data sudah: sesi tanpa captcha ditolak RLS.
 import postgres from "npm:postgres@3.4.4";
 
 const SUPA_URL = Deno.env.get("SUPABASE_URL") ?? "https://ecjhttvuvexdxklnalkz.supabase.co";
 const ANON = Deno.env.get("SUPABASE_ANON_KEY") ?? "sb_publishable_UG7CxGZWdbCHApduPiEXkw_JcJjlfr0";
 const sql = postgres(Deno.env.get("SUPABASE_DB_URL")!, { prepare: false, max: 2 });
-const TTL = 300, LEN = 5, MAX_FAIL = 8, FAIL_WINDOW_MIN = 15;
+const TTL = 300, LEN = 5, MAX_FAIL = 8, MAX_FAIL_IP = 20, FAIL_WINDOW_MIN = 15;
 const CHARS = "ACDEFHJKLPRTXY34579";  // tanpa karakter yang mudah tertukar (B/8, G/6, U/V, Z/2, M/N/W, dst.)
 // font bitmap 5x7 (baris atas ke bawah, 5 bit per baris)
 const F: Record<string, string> = {
@@ -49,6 +52,12 @@ function hkey() {
 }
 async function mac(s: string) { return b64u(new Uint8Array(await crypto.subtle.sign("HMAC", await hkey(), new TextEncoder().encode(s)))); }
 function eq(a: string, b: string) { if (a.length !== b.length) return false; let r = 0; for (let i = 0; i < a.length; i++) r |= a.charCodeAt(i) ^ b.charCodeAt(i); return r === 0; }
+// IP pemanggil untuk throttle per-IP. Proxy platform mengisi X-Forwarded-For; dipakai sebagai pembatas biaya
+// percobaan, bukan batas keamanan — kunci per (email, IP) mencegah satu penyerang mengunci akun orang lain.
+function clientIp(req: Request) {
+  const hop = (req.headers.get("x-forwarded-for") ?? "").split(",")[0].trim().slice(0, 45);
+  return /^[0-9a-fA-F:.]{3,45}$/.test(hop) ? hop : "unknown";
+}
 
 // Captcha dirender jadi PNG (raster) di server: struktur huruf tidak terbaca dari markup.
 const CRC = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
@@ -143,17 +152,23 @@ Deno.serve(async (req) => {
     if (!email || !password) return json({ error: "missing_fields", challenge: await challenge() }, 400);
     const cErr = await checkPass(body.pass);
     if (cErr) return json({ error: cErr, challenge: await challenge() }, 400);
-    const f = await sql`select count(*)::int n from private.login_attempts where email = ${email} and not ok and at > now() - make_interval(mins => ${FAIL_WINDOW_MIN})`;
-    if (f[0].n >= MAX_FAIL) return json({ error: "too_many_attempts", challenge: await challenge() }, 429);
+    const ip = clientIp(req);
+    const f = await sql`select count(*)::int n from private.login_attempts where email = ${email} and ip = ${ip} and not ok and at > now() - make_interval(mins => ${FAIL_WINDOW_MIN})`;
+    let tooMany = f[0].n >= MAX_FAIL;
+    if (!tooMany && ip !== "unknown") {
+      const fi = await sql`select count(*)::int n from private.login_attempts where ip = ${ip} and not ok and at > now() - make_interval(mins => ${FAIL_WINDOW_MIN})`;
+      tooMany = fi[0].n >= MAX_FAIL_IP;
+    }
+    if (tooMany) return json({ error: "too_many_attempts", challenge: await challenge() }, 429);
     const r = await fetch(SUPA_URL + "/auth/v1/token?grant_type=password", { method: "POST", headers: { apikey: ANON, "Content-Type": "application/json" }, body: JSON.stringify({ email, password }) });
     const j = await r.json().catch(() => ({}));
     if (!r.ok || !j.access_token) {
-      await sql`insert into private.login_attempts (email, ok) values (${email}, false)`;
+      await sql`insert into private.login_attempts (email, ok, ip) values (${email}, false, ${ip})`;
       return json({ error: j.error_code || j.error || "login_failed", status: r.status, challenge: await challenge() }, r.status === 429 ? 429 : 400);
     }
     const claims = JSON.parse(new TextDecoder().decode(ub64(j.access_token.split(".")[1])));
     await sql`insert into private.captcha_sessions (session_id, user_id) values (${claims.session_id}, ${claims.sub}) on conflict do nothing`;
-    await sql`insert into private.login_attempts (email, ok) values (${email}, true)`;
+    await sql`insert into private.login_attempts (email, ok, ip) values (${email}, true, ${ip})`;
     await sql`delete from private.captcha_used where used_at < now() - interval '1 day'`;
     await sql`delete from private.login_attempts where at < now() - interval '7 days'`;
     return json({ access_token: j.access_token, refresh_token: j.refresh_token, expires_in: j.expires_in, expires_at: j.expires_at, user: { email: j.user?.email } });

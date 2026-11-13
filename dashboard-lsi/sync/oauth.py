@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Accurate OAuth helper (READ-ONLY usage).
-  python3 oauth.py url [redirect_uri]          -> print authorize URL (only client_id inside)
+  python3 oauth.py url [redirect_uri]          -> print authorize URL (client_id + state; state = ACC_OAUTH_STATE)
   ACC_CODE=... python3 oauth.py exchange [redirect_uri]  -> swap code for tokens, save to .oauth.json (chmod 600)
   python3 oauth.py refresh                     -> refresh access token
   python3 oauth.py dbs                         -> list databases (alias/id only) + open-db host (session saved, not printed)
@@ -10,6 +10,7 @@ _CF=os.path.join(os.path.dirname(os.path.abspath(__file__)),'.client.json')
 CID=json.load(open(_CF))['client_id'] if os.path.exists(_CF) else os.environ['ACCURATE_API_TOKEN'].strip(); CS=os.environ.get('ACCURATE_CLIENT_SECRET','').strip()
 STORE=os.path.join(os.path.dirname(os.path.abspath(__file__)),'.oauth.json')
 REDIRECT=os.environ.get('ACC_REDIRECT_URI','http://localhost/aol-oauth-callback')
+STATE=os.environ.get('ACC_OAUTH_STATE','').strip()
 SCOPES='sales_invoice_view sales_return_view item_view customer_view'
 def save(d):
     fd=os.open(STORE,os.O_WRONLY|os.O_CREAT|os.O_TRUNC,0o600)
@@ -33,7 +34,8 @@ def api(path,params=None):
 cmd=sys.argv[1] if len(sys.argv)>1 else 'url'
 ru=sys.argv[2] if len(sys.argv)>2 else REDIRECT
 if cmd=='url':
-    print('https://account.accurate.id/oauth/authorize?'+urllib.parse.urlencode({'client_id':CID,'response_type':'code','redirect_uri':ru,'scope':os.environ.get('ACC_SCOPES',SCOPES)},quote_via=urllib.parse.quote))
+    if not STATE: sys.exit('ACC_OAUTH_STATE wajib di-set (harus sama dengan Vault accurate_oauth_state); callback menolak tanpa state yang cocok')
+    print('https://account.accurate.id/oauth/authorize?'+urllib.parse.urlencode({'client_id':CID,'response_type':'code','redirect_uri':ru,'scope':os.environ.get('ACC_SCOPES',SCOPES),'state':STATE},quote_via=urllib.parse.quote))
 elif cmd=='exchange':
     code=os.environ.get('ACC_CODE') or input('code: ').strip()
     token({'grant_type':'authorization_code','code':code,'redirect_uri':ru})

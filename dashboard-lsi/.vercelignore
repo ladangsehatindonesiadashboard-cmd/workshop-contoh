@@ -1,4 +1,6 @@
 README.md
 scripts/
+sync/
+supabase/
 .env*
 .gitignore

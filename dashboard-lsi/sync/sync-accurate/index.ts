@@ -4,13 +4,14 @@
 // Mode:
 //   POST {mode:"pull"}            (pg_cron per jam)  -> OAuth token dari Vault, tarik data inkremental, bangun snapshot
 //   POST {mode:"ingest", ...}     (job di box)        -> terima kunci penjualan yang sudah dihitung, gabungkan ke snapshot
-//   GET  ?code=...                (OAuth callback)    -> tukar code jadi token, simpan di Vault
-// Auth pull/ingest: header x-sync-key; sha256-nya harus sama dengan SYNC_KEY_SHA256 (kunci asli tidak ada di kode).
+//   GET  ?code=...&state=...      (OAuth callback)    -> tukar code jadi token, simpan di Vault
+// Auth pull/ingest: header x-sync-key, dibandingkan constant-time dengan Vault 'accurate_sync_key'
+//          (tidak ada kunci maupun hash-nya di kode).
+// OAuth callback: GET ?code=...&state=...; state wajib sama dengan Vault 'accurate_oauth_state' (selain itu 403).
 // Rahasia: client secret dari env ACCURATE_CLIENT_SECRET (function secret) atau Vault 'accurate_client_secret';
 //          token di Vault: accurate_access_token, accurate_refresh_token, accurate_token_expires_at.
 import postgres from "npm:postgres@3.4.4";
 
-const SYNC_KEY_SHA256 = "9dd84f6b6e45e1b0d275456269619c1a5cbeb078223ab6725d5684c6013e4607";
 const CLIENT_ID = "432f96f6-4f33-4ddd-b52b-a59fdb774ed7";
 const DB_ID = 2685839; // PT LADANG SEHAT INDONESIA
 const FIXED_PERIODS = ["2026-10"];
@@ -21,9 +22,12 @@ const BULAN = ["Januari","Februari","Maret","April","Mei","Juni","Juli","Agustus
 
 const sql = postgres(Deno.env.get("SUPABASE_DB_URL")!, { prepare: false, max: 3 });
 
-async function sha256hex(s: string) {
-  const b = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s)));
-  return [...b].map((x) => x.toString(16).padStart(2, "0")).join("");
+// Perbandingan constant-time; panjang berbeda langsung ditolak.
+function eq(a: string, b: string) {
+  if (a.length !== b.length) return false;
+  let r = 0;
+  for (let i = 0; i < a.length; i++) r |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return r === 0;
 }
 async function vaultGet(names: string[]): Promise<Record<string, string>> {
   const rows = await sql`select name, decrypted_secret from vault.decrypted_secrets where name = any(${names})`;
@@ -220,17 +224,20 @@ Deno.serve(async (req) => {
   const url = new URL(req.url);
   try {
     if (req.method === "GET" && url.searchParams.get("code")) {           // OAuth callback
+      const expectState = (await vaultGet(["accurate_oauth_state"])).accurate_oauth_state ?? "";
+      if (!expectState) return new Response("oauth state belum di-set (Vault accurate_oauth_state)", { status: 503 });
+      if (!eq(url.searchParams.get("state") ?? "", expectState)) return new Response("forbidden", { status: 403 });
       await tokenRequest({ grant_type: "authorization_code", code: url.searchParams.get("code")!, redirect_uri: FN_URL });
       return new Response("<h3>Accurate terhubung. Token tersimpan di Supabase Vault. Halaman ini boleh ditutup.</h3>", { headers: { "Content-Type": "text/html; charset=utf-8" } });
     }
     if (req.method !== "POST") return new Response("method not allowed", { status: 405 });
     const key = req.headers.get("x-sync-key") ?? "";
-    if (!key || (await sha256hex(key)) !== SYNC_KEY_SHA256) return new Response("forbidden", { status: 403 });
+    const expectKey = (await vaultGet(["accurate_sync_key"])).accurate_sync_key ?? "";
+    if (!expectKey) return new Response("sync key belum di-set (Vault accurate_sync_key)", { status: 503 });
+    if (!eq(key, expectKey)) return new Response("forbidden", { status: 403 });
     const body = await req.json().catch(() => ({}));
     const mode = body.mode ?? "pull";
     const run = await sql`insert into accurate_sync.runs (message, stats) values (${mode}, '{}'::jsonb) returning id`;
-    // simpan kunci di Vault (sekali) agar pg_cron bisa memanggil function ini tanpa kunci di tabel biasa
-    if (!(await vaultGet(["accurate_sync_key"])).accurate_sync_key) await vaultSet("accurate_sync_key", key);
     let stats: any;
     try {
       if (mode === "ingest") {
