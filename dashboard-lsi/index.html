@@ -1,0 +1,106 @@
+<!doctype html><html lang="id"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dashboard Manajemen LSI · Oktober 2026</title>
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="assets/styles.css">
+</head><body>
+<div class="boot" id="boot" role="status" aria-live="polite">
+ <div class="bx"><div class="lg">LSI</div>
+  <div id="bootLoad"><h2>Memuat data dashboard…</h2><p>Mengambil snapshot dari database Supabase.</p><div class="sp" aria-hidden="true"></div></div>
+  <div id="bootErr" hidden><h2>Data gagal dimuat</h2><p id="bootMsg">Periksa koneksi internet lalu coba lagi.</p><div class="er" id="bootDet"></div><button type="button" id="bootRetry">Coba lagi</button></div>
+ </div>
+</div>
+
+<div class="app" id="app" aria-busy="true">
+<aside class="side" id="side" aria-label="Navigasi">
+ <div class="brand"><div class="logo">LSI</div><div><b>Ladang Sehat</b><small>Management System</small></div></div>
+ <div class="navh">MENU</div>
+ <nav class="nav" id="nav">
+  <a href="#penjualan" data-menu="penjualan" class="on"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 4h2l2.4 11h11l2-8H6.2"/><circle cx="9" cy="19.5" r="1.5"/><circle cx="17" cy="19.5" r="1.5"/></svg> Total Penjualan</a>
+  <a href="#produksi" data-menu="produksi"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 21V10l6 4V10l6 4V6h6v15z"/></svg> Total Hasil Produksi</a>
+  <a href="#finansial" data-menu="finansial"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10l9-6 9 6M5 10v8M9.5 10v8M14.5 10v8M19 10v8M3 21h18"/></svg> Neraca Finansial</a>
+  <a href="#wms" data-menu="wms"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7l9-4 9 4v10l-9 4-9-4z"/><path d="M3 7l9 4 9-4M12 11v10"/></svg> Warehouse Management</a>
+  <a href="#umum" data-menu="umum"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><path d="M16 4.6a3.5 3.5 0 0 1 0 6.8M18 14.8c2 .7 3.2 2.5 3.6 5.2"/></svg> Informasi Umum</a>
+ </nav>
+ <div class="navh">LAINNYA</div>
+ <nav class="nav"><a href="#" data-go="notes"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 2h9l5 5v15H6z"/><path d="M14 2v6h6M9 13h8M9 17h6"/></svg> Catatan Data</a></nav>
+ <div class="src"><b><span class="ok"></span>Sumber: Accurate Online</b>
+  <div class="row">PT LADANG SEHAT INDONESIA<br>Periode: 1 – 31 Oktober 2026</div>
+  <div style="margin-top:8px;color:#7187A8">Data Accurate diekspor 13 Nov 2026 (WIB)</div></div>
+</aside>
+<div class="side-ov" id="sideOv" hidden></div>
+<main class="main">
+ <header class="top">
+  <button class="burger" id="burger" aria-label="Buka menu" aria-controls="side" aria-expanded="false"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+  <div style="min-width:0"><h1 id="pageT">Total Penjualan</h1><div class="sub"><span class="badge">OKTOBER 2026</span>Dashboard Manajemen LSI · data 1 – 31 Oktober 2026</div></div>
+  <div class="tr"><div class="user"><div class="av">FL</div><div><b>Finance PT. LSI</b><small>Administrator</small></div></div></div>
+ </header>
+ <div class="content">
+  <div class="filters">
+   <div class="seg" role="group" aria-label="Granularitas waktu" id="seg">
+    <button type="button" data-g="D" aria-pressed="false">Harian</button><button type="button" data-g="W" aria-pressed="false">Mingguan</button><button type="button" data-g="M" aria-pressed="true">Bulanan</button><button type="button" data-g="Y" aria-pressed="false">Tahunan</button>
+   </div>
+   <label class="f" id="pickWrap"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6B7A90" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg><span class="l" id="pickL">Periode</span><span id="pick"></span></label>
+   <div class="plabel" id="plabel"></div>
+   <div class="fsp"><button class="btn2" type="button" data-go="notes"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 2h9l5 5v15H6z"/><path d="M14 2v6h6M9 13h8M9 17h6"/></svg> Metodologi</button></div>
+  </div>
+  <div class="pnote" id="pnote"></div>
+
+  <section class="view on" id="v-penjualan" aria-labelledby="h-penjualan">
+   <div class="sec"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1E3A6E" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 4h2l2.4 11h11l2-8H6.2"/><circle cx="9" cy="19.5" r="1.5"/><circle cx="17" cy="19.5" r="1.5"/></svg><h2 id="h-penjualan">Total Penjualan</h2><span class="tag">Omzet = penjualan excl. PPN setelah diskon · PT LSI · Oktober 2026</span><div class="line"></div></div>
+   <div class="mods" id="m-penjualan"></div>
+   <div class="grid g21">
+    <div class="card"><div class="ch"><div><h3>Tren Omzet &amp; Retur Rate</h3><p id="chSalesSub"></p></div><div class="acts"><div class="legend"><span><i style="background:var(--pt)"></i>Omzet</span><span><i class="ln" style="background:var(--red)"></i>Retur rate</span></div><button class="link" data-go="omzet">Detail ›</button></div></div>
+     <div class="chart" id="chSales"></div><div class="hint">Klik batang untuk memilih periode tersebut.</div></div>
+    <div class="card"><div class="ch"><div><h3>Top 10 Barang Terjual</h3><p>Qty Oktober 2026 · Sales per Item</p></div><button class="link" data-go="items">Semua ›</button></div><div class="hb" id="topItems"></div></div>
+   </div>
+  </section>
+
+  <section class="view" id="v-produksi" aria-labelledby="h-produksi">
+   <div class="sec"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2E9E6A" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 21V10l6 4V10l6 4V6h6v15z"/></svg><h2 id="h-produksi">Total Hasil Produksi</h2><span class="tag">Hasil = Finished Good Slip per Work Order · Waste = stok Non-Conformity</span><div class="line"></div></div>
+   <div class="mods" id="m-produksi"></div>
+   <div class="grid g21">
+    <div class="card"><div class="ch"><div><h3>Hasil Produksi per Kategori</h3><p id="chProdSub"></p></div><div class="legend" id="prodLeg"></div></div>
+     <div class="chart" id="chProd"></div><div class="hint">Klik batang untuk memilih periode tersebut.</div></div>
+    <div class="card"><div class="ch"><div><h3>Waste per Kategori</h3><p>Stok Non-Conformity · Oktober 2026</p></div><button class="link" data-go="waste">Detail ›</button></div><div class="wf" id="wasteCat"></div><div class="def" id="wasteDef"></div></div>
+   </div>
+  </section>
+
+  <section class="view" id="v-finansial" aria-labelledby="h-finansial">
+   <div class="sec"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1E3A6E" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10l9-6 9 6M5 10v8M9.5 10v8M14.5 10v8M19 10v8M3 21h18"/></svg><h2 id="h-finansial">Neraca Finansial</h2><span class="tag">Laba Rugi 1 – 31 Okt 2026 · Neraca &amp; umur hutang/piutang per 31 Okt 2026 · PT LSI</span><div class="line"></div></div>
+   <div class="mods c3" id="m-finansial"></div>
+   <div class="grid g11">
+    <div class="card"><div class="ch"><div><h3>Ringkasan Laba Rugi</h3><p>Total 1 – 31 Okt 2026 · klik baris untuk rincian akun</p></div></div><div class="wf" id="plWf"></div></div>
+    <div class="card"><div class="ch"><div><h3>Umur Piutang vs Hutang</h3><p>Per 31 Okt 2026 · per kelompok umur (hari)</p></div><div class="legend"><span><i style="background:var(--navy2)"></i>Piutang</span><span><i style="background:var(--gold)"></i>Hutang</span></div></div><div class="chart" id="chAging"></div></div>
+   </div>
+  </section>
+
+  <section class="view" id="v-wms" aria-labelledby="h-wms">
+   <div class="sec"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#E3A21A" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7l9-4 9 4v10l-9 4-9-4z"/><path d="M3 7l9 4 9-4M12 11v10"/></svg><h2 id="h-wms">Warehouse Management System</h2><span class="tag">Kuantitas &amp; nilai stok per gudang per 31 Okt 2026</span><div class="line"></div></div>
+   <div class="mods c3" id="m-wms"></div>
+   <div class="grid g11">
+    <div class="card"><div class="ch"><div><h3>Stok per Gudang</h3><p>Total kuantitas (satuan campuran) · tag = pemetaan modul</p></div></div><div class="wf" id="whList"></div></div>
+    <div class="card"><div class="ch"><div><h3>Barang Jadi per Kategori</h3><p>Gudang Finished Goods (SUB + PSN), Bali, Jakarta · qty</p></div></div><div class="tbl-wrap" id="whFg"></div><div class="def" id="whDef"></div></div>
+   </div>
+  </section>
+
+  <section class="view" id="v-umum" aria-labelledby="h-umum">
+   <div class="sec"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#7C3AED" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><path d="M16 4.6a3.5 3.5 0 0 1 0 6.8M18 14.8c2 .7 3.2 2.5 3.6 5.2"/></svg><h2 id="h-umum">Informasi Umum</h2><span class="tag">Daftar Karyawan Accurate (PT LSI)</span><div class="line"></div></div>
+   <div class="mods c3" id="m-umum"></div>
+   <div class="grid g11">
+    <div class="card"><div class="ch"><div><h3>Karyawan per Status Kerja</h3><p>Kolom Work Status di Daftar Karyawan</p></div><button class="link" data-go="emp">Detail ›</button></div><div class="wf" id="empStat"></div><div class="def" id="empDef"></div></div>
+    <div class="card"><div class="ch"><div><h3>Karyawan per Tahun Bergabung</h3><p>Kolom Join Date</p></div></div><div class="chart" id="chEmp"></div></div>
+   </div>
+  </section>
+
+  <div class="foot">Dashboard Manajemen LSI · data Accurate Online Oktober 2026 · modul tanpa sumber data dibiarkan kosong</div>
+ </div>
+</main></div>
+<div class="tip" id="tip" role="status" aria-live="polite"></div>
+<div class="ov" id="ov" hidden><div class="dlg" role="dialog" aria-modal="true" aria-labelledby="dlgT" id="dlg">
+ <div class="dh"><button class="bk" id="dlgBack" aria-label="Kembali" hidden>‹</button><div style="min-width:0"><h2 id="dlgT"></h2><p id="dlgS"></p></div><button class="x" id="dlgX" aria-label="Tutup (Esc)">×</button></div>
+ <div class="db" id="dlgB" tabindex="-1"></div></div></div>
+<script src="assets/config.js"></script>
+<script src="assets/app.js"></script>
+<script src="assets/loader.js"></script>
+</body></html>
