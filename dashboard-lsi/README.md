@@ -38,7 +38,8 @@ Loop `box_sync.py` di mesin terpisah (`start_sync.sh`) sudah dipensiunkan.
 
 ## Cara kerja
 
-1. `loader.js` membaca parameter `?period=YYYY-MM` dari URL (default `2026-10`).
+1. `loader.js` mengambil daftar periode (`select=period,label`) lalu membaca `?period=YYYY-MM` dari URL.
+   Tanpa `?period` dipakai `DEFAULT_PERIOD` di `assets/config.js` (`'latest'` = periode terbaru di database).
 2. Halaman menampilkan login; `login-gate` memberi captcha, memverifikasi password, lalu mencatat
    `session_id` sesi Supabase di `private.captcha_sessions`.
 3. Dengan token sesi itu halaman memanggil REST API Supabase:
@@ -48,7 +49,9 @@ Loop `box_sync.py` di mesin terpisah (`start_sync.sh`) sudah dipensiunkan.
 4. Selama menunggu tampil layar "Memuat data…". Jika gagal, muncul pesan dan tombol **Coba lagi**.
 5. Setelah data diterima, `LSIApp.start(data)` merender seluruh dashboard.
 
-Contoh: `https://<domain>/` (Oktober 2026) atau `https://<domain>/?period=2026-11`.
+Contoh: `https://<domain>/` (periode terbaru) atau `https://<domain>/?period=2026-09`.
+Di dashboard, filter **Bulanan → Bulan** berisi semua periode yang ada di `dashboard_snapshots`;
+memilih bulan lain memuat ulang halaman dengan `?period=` (sesi login tetap).
 
 ### Tabel Supabase
 
@@ -140,13 +143,16 @@ Tidak ada kunci, hash kunci, atau angka keuangan yang disematkan di aset statis.
 4. Buka `/?period=2026-11` untuk melihat hasilnya. Untuk menjadikannya tampilan
    default, ubah `DEFAULT_PERIOD` di `assets/config.js`.
 
-### Batasan saat ini
+### Periode & snapshot
 
-Logika tampilan (`app.js`) masih dikunci ke **Oktober 2026**: rentang hari 1–31 Okt,
-minggu W40–W44, dan teks label "Oktober". Data bulan lain sudah bisa dimuat lewat
-`?period=`, tetapi agar filter harian/mingguan dan label tepat, konstanta tanggal di
-`app.js` (`MIND`, `MAXD`, pilihan bulan/tahun, dan teks "Oktober") perlu dibuat dinamis
-berdasarkan periode. Halaman menampilkan catatan kuning bila periode ≠ `UI_PERIOD`.
+`app.js` membaca periode aktif (`window.LSI_PERIOD` dari loader, atau `sales_src.period`) dan
+menghitung rentang hari, minggu ISO, label bulan, dan pilihan Bulan/Tahun dari periode itu.
+Edge function `sync-accurate` menyinkron **semua bulan sejak Juni 2026** (faktur 31/05/2026
+adalah migrasi saldo awal) dan menulis snapshot penjualan per bulan (`sales_only: true`).
+Hanya `FULL_PERIOD` (`2026-10`) yang memuat data produksi, Laba Rugi/Neraca, umur hutang/piutang,
+dan stok; bulan lain menampilkan "Data belum tersedia" untuk modul itu. Daftar Karyawan (data
+master tanpa tanggal) dipinjam dari snapshot `FULL_PERIOD`. Catatan kuning muncul untuk snapshot
+`sales_only`.
 
 ## Menjalankan lokal
 

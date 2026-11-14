@@ -141,10 +141,27 @@
   $('logoutBtn').addEventListener('click', logout);
 
   // ---------- dashboard ----------
-  function getPeriod() {
+  var PRE = /^\d{4}-(0[1-9]|1[0-2])$/;
+  // Periode dari ?period=YYYY-MM; kalau kosong pakai DEFAULT_PERIOD ('latest' = periode terbaru di database).
+  function getPeriod(list) {
     var p = new URLSearchParams(location.search).get('period');
-    return p && /^\d{4}-(0[1-9]|1[0-2])$/.test(p) ? p : C.DEFAULT_PERIOD;
+    if (p && PRE.test(p)) return p;
+    if (C.DEFAULT_PERIOD && C.DEFAULT_PERIOD !== 'latest' && PRE.test(C.DEFAULT_PERIOD)) return C.DEFAULT_PERIOD;
+    return list && list.length ? list[0].period : (C.FULL_PERIOD || '2026-10');
   }
+  // Daftar periode yang tersedia (tanpa kolom data, jadi ringan); gagal = daftar kosong, dashboard tetap jalan.
+  function fetchPeriods(s) {
+    var url = C.SUPABASE_URL + '/rest/v1/' + C.TABLE + '?select=period,label,updated_at&order=period.desc';
+    return fetch(url, { headers: { apikey: C.SUPABASE_PUBLISHABLE_KEY, Authorization: 'Bearer ' + s.access_token, Accept: 'application/json' }, cache: 'no-store' })
+      .then(function (r) { return r.ok ? r.json() : []; })
+      .then(function (rows) { return Array.isArray(rows) ? rows.filter(function (x) { return x && PRE.test(x.period); }) : []; })
+      .catch(function () { return []; });
+  }
+  // Ganti bulan dari pemilih "Bulan" di dashboard: muat ulang halaman dengan ?period= (sesi login tetap tersimpan).
+  window.LSIGoPeriod = function (p) {
+    if (!PRE.test(p)) return;
+    var u = new URL(location.href); u.searchParams.set('period', p); location.assign(u.toString());
+  };
   function periodLabel(p) { var a = p.split('-'); return BULAN[+a[1] - 1] + ' ' + a[0]; }
   function showLoading() { $('login').hidden = true; $('boot').hidden = false; $('bootLoad').hidden = false; $('bootErr').hidden = true; }
   function showError(msg, detail) {
@@ -163,13 +180,14 @@
     if (s && s.email) { var ue = $('userEmail'); if (ue) { ue.textContent = s.email; ue.title = s.email; } }
     var src = document.querySelector('.side .src');
     if (src && row.updated_at) { var d = document.createElement('div'); d.style.cssText = 'margin-top:4px;color:#7187A8'; d.textContent = 'Snapshot Supabase: ' + fmtWIB(row.updated_at); src.appendChild(d); }
-    if (period !== C.UI_PERIOD) {
+    if (row.data && row.data.sales_only) {
       var w = document.createElement('div'); w.className = 'pwarn'; w.setAttribute('role', 'note');
-      w.textContent = 'Catatan: tampilan ini disusun untuk ' + periodLabel(C.UI_PERIOD) + '. Data ' + label + ' dimuat dari Supabase, tetapi rentang tanggal & label pada grafik masih mengikuti ' + periodLabel(C.UI_PERIOD) + '.';
+      w.textContent = 'Catatan: data ' + label + ' berisi penjualan (faktur & retur) yang disinkron otomatis tiap jam dari Accurate. Produksi, Neraca Finansial, dan WMS baru tersedia untuk ' + periodLabel(C.FULL_PERIOD || '2026-10') + '; Informasi Umum memakai Daftar Karyawan (data master) dari snapshot tersebut.';
       var content = document.querySelector('.content'); content.insertBefore(w, content.firstChild);
     }
     started = true;
     $('app').hidden = false;                 // tampil dulu agar grafik bisa mengukur lebar
+    window.LSI_PERIOD = period;
     window.LSIApp.start(row.data);
     $('app').removeAttribute('aria-busy'); $('boot').hidden = true;
   }
@@ -186,27 +204,45 @@
         return r.json().then(function (rows) { return { rows: rows, s: s }; });
       }, function (e) { clearTimeout(to); throw e; });
   }
+  // Snapshot sales_only tidak memuat data master tanpa tanggal (Daftar Karyawan). Pinjam dari snapshot lengkap
+  // (hanya kolom emp/emp_cols lewat JSON path PostgREST, jadi ringan). Gagal = modul Informasi Umum kosong saja.
+  function withMaster(s, row) {
+    var full = C.FULL_PERIOD || '2026-10';
+    if (!row || !row.data || !row.data.sales_only || row.data.emp) return Promise.resolve(row);
+    var url = C.SUPABASE_URL + '/rest/v1/' + C.TABLE + '?period=eq.' + encodeURIComponent(full) + '&select=emp:data->emp,emp_cols:data->emp_cols';
+    return fetch(url, { headers: { apikey: C.SUPABASE_PUBLISHABLE_KEY, Authorization: 'Bearer ' + s.access_token, Accept: 'application/json' }, cache: 'no-store' })
+      .then(function (r) { return r.ok ? r.json() : []; })
+      .then(function (m) { if (Array.isArray(m) && m[0] && Array.isArray(m[0].emp)) { row.data.emp = m[0].emp; if (m[0].emp_cols) row.data.emp_cols = m[0].emp_cols; } return row; })
+      .catch(function () { return row; });
+  }
   function load() {
     if (started) { location.reload(); return; }
     validSession().then(function (s) {
       if (!s) { showLogin(); return; }
-      var period = getPeriod(); showLoading();
-      return fetchSnapshot(s, period).then(function (res) {
+      showLoading();
+      var period;
+      return fetchPeriods(s).then(function (list) {
+        window.LSI_PERIODS = list;
+        period = getPeriod(list);
+        return fetchSnapshot(s, period);
+      }).then(function (res) {
         var rows = res.rows;
         if (Array.isArray(rows) && !rows.length) {
           return fetch(C.SUPABASE_URL + '/rest/v1/rpc/is_captcha_session', { method: 'POST', headers: { apikey: C.SUPABASE_PUBLISHABLE_KEY, Authorization: 'Bearer ' + res.s.access_token, 'Content-Type': 'application/json' }, body: '{}' })
             .then(function (r) { return r.ok ? r.json() : false; }).catch(function () { return true; })
             .then(function (okSess) {
               if (okSess === false) { setSession(null); showLogin('Sesi perlu diverifikasi ulang. Silakan masuk kembali dengan captcha.'); return; }
-              showError('Snapshot untuk periode ' + periodLabel(period) + ' (' + period + ') belum tersedia di database.', 'Buka tanpa ?period untuk ' + periodLabel(C.DEFAULT_PERIOD) + '.');
+              showError('Snapshot untuk periode ' + periodLabel(period) + ' (' + period + ') belum tersedia di database.', 'Pilih periode lain, atau buka tanpa ?period untuk periode terbaru.');
             });
         }
         if (!Array.isArray(rows) || !rows.length || !rows[0].data) {
-          showError('Snapshot untuk periode ' + periodLabel(period) + ' (' + period + ') belum tersedia di database.', 'Buka tanpa ?period untuk ' + periodLabel(C.DEFAULT_PERIOD) + '.');
+          showError('Snapshot untuk periode ' + periodLabel(period) + ' (' + period + ') belum tersedia di database.', 'Pilih periode lain, atau buka tanpa ?period untuk periode terbaru.');
           return;
         }
-        try { render(rows[0], period, res.s); }
-        catch (e) { console.error(e); showError('Data termuat, tetapi dashboard gagal ditampilkan.', String(e && e.message || e)); }
+        return withMaster(res.s, rows[0]).then(function (row) {
+          try { render(row, period, res.s); }
+          catch (e) { console.error(e); showError('Data termuat, tetapi dashboard gagal ditampilkan.', String(e && e.message || e)); }
+        });
       });
     }).catch(function (e) {
       if (e && e.auth) { setSession(null); showLogin('Sesi berakhir. Silakan masuk kembali.'); return; }
