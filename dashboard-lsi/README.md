@@ -15,7 +15,11 @@ dashboard-lsi/
 │   ├── config.js            # URL Supabase + publishable key (publik), periode default
 │   ├── app.js               # logika dashboard: menu, filter, grafik, modul, detail
 │   ├── loader.js            # login (login-gate) + ambil data Supabase → panggil LSIApp.start(data)
-│   └── favicon.svg
+│   ├── favicon.svg
+│   ├── icon-192.png, icon-512.png, icon-maskable-*.png, apple-touch-icon.png
+├── manifest.webmanifest     # PWA: nama "Dashboard LSI", standalone, theme #13294B
+├── sw.js                    # service worker: cache shell statis saja (naikkan SHELL_VERSION bila shell berubah)
+├── offline.html             # pesan saat dibuka tanpa jaringan dan shell belum tersimpan
 ├── sync/
 │   ├── login-gate/index.ts  # edge function: captcha, lockout per (email, IP), sesi Auth
 │   ├── sync-accurate/       # edge function sinkron Accurate (pull/ingest/OAuth callback) + schedule.sql
@@ -122,6 +126,8 @@ Tidak ada kunci, hash kunci, atau angka keuangan yang disematkan di aset statis.
   ditahan di sisi data: sesi hasil panggilan langsung tidak pernah tercatat di
   `private.captcha_sessions`, jadi RLS menolak membacakan snapshot untuk sesi itu.
 - **CSP** (`vercel.json`) membatasi skrip ke origin sendiri; inline script tidak dipakai.
+  `manifest-src` dan `worker-src` sama-sama `'self'` agar manifest dan `sw.js` lolos.
+  `sw.js` dikirim dengan `Cache-Control: no-cache` supaya pembaruan service worker tidak tertahan.
 
 ## Mengunggah snapshot bulan baru
 
@@ -153,6 +159,15 @@ Hanya `FULL_PERIOD` (`2026-10`) yang memuat data produksi, Laba Rugi/Neraca, umu
 dan stok; bulan lain menampilkan "Data belum tersedia" untuk modul itu. Daftar Karyawan (data
 master tanpa tanggal) dipinjam dari snapshot `FULL_PERIOD`. Catatan kuning muncul untuk snapshot
 `sales_only`.
+
+## PWA
+
+Situs bisa dipasang ke layar utama (manifest + service worker). Service worker hanya
+menyimpan shell statis: HTML, CSS, JS, ikon, dan manifest. Panggilan ke Supabase
+(REST, Auth, Edge Function) tidak di-cache; angka dashboard selalu dari jaringan.
+Saat offline, halaman menampilkan pesan dan data tidak diisi dari cache. Ganti
+`SHELL_VERSION` di `sw.js` setiap kali isi shell berubah; klien yang sudah terpasang
+menampilkan "Versi baru tersedia" lalu memuat ulang.
 
 ## Menjalankan lokal
 
