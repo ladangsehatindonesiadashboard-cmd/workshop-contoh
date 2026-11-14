@@ -373,7 +373,7 @@ $('dlgX').onclick=closeDlg;$('dlgBack').onclick=back;
 ov.addEventListener('click',e=>{if(e.target===ov)closeDlg()});
 // ---------- sidebar & menus
 const side=$('side'),sideOv=$('sideOv'),burger=$('burger');
-function sideToggle(o){side.classList.toggle('open',o);sideOv.hidden=!o;burger.setAttribute('aria-expanded',o)}
+function sideToggle(o){side.classList.toggle('open',!!o);sideOv.hidden=!o;burger.setAttribute('aria-expanded',o?'true':'false');document.body.classList.toggle('nav-open',!!o)}
 burger.onclick=()=>sideToggle(!side.classList.contains('open'));sideOv.onclick=()=>sideToggle(false);
 function showMenu(m){if(!MENUS[m])m='penjualan';MENU=m;document.querySelectorAll('[data-menu]').forEach(a=>{a.classList.toggle('on',a.dataset.menu===m);if(a.dataset.menu===m)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current')});document.querySelectorAll('.view').forEach(v=>v.classList.toggle('on',v.id==='v-'+m));$('pageT').textContent=MENUS[m];render();window.scrollTo(0,0)}
 document.querySelectorAll('[data-menu]').forEach(a=>a.addEventListener('click',e=>{e.preventDefault();history.replaceState(null,'','#'+a.dataset.menu);showMenu(a.dataset.menu);sideToggle(false)}));

@@ -251,5 +251,38 @@
     });
   }
   $('bootRetry').addEventListener('click', load);
+
+  // PWA: shell boleh di-cache; data Supabase tidak. Banner hanya setelah ada service worker sebelumnya.
+  function setNetMsg() {
+    var el = $('netMsg'); if (!el) return;
+    if (navigator.onLine) { el.hidden = true; el.textContent = ''; return; }
+    el.hidden = false;
+    el.textContent = 'Anda sedang offline. Data dashboard selalu diambil dari jaringan dan baru tersedia setelah koneksi kembali.';
+  }
+  window.addEventListener('online', setNetMsg);
+  window.addEventListener('offline', setNetMsg);
+  setNetMsg();
+  var swBtn = $('swReload');
+  if (swBtn) swBtn.addEventListener('click', function () {
+    if (!('serviceWorker' in navigator)) { location.reload(); return; }
+    navigator.serviceWorker.getRegistration().then(function (reg) {
+      if (reg && reg.waiting) {
+        navigator.serviceWorker.addEventListener('controllerchange', function () { location.reload(); });
+        reg.waiting.postMessage({ type: 'skipWaiting' });
+        return;
+      }
+      location.reload();
+    }).catch(function () { location.reload(); });
+  });
+  if ('serviceWorker' in navigator) {
+    var hadSw = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.addEventListener('controllerchange', function () {
+      var el = $('swUpdate'); if (hadSw && el) el.hidden = false;
+    });
+    window.addEventListener('load', function () {
+      navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(function () {});
+    });
+  }
+
   load();
 })();

@@ -1,7 +1,14 @@
 <!doctype html><html lang="id"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#13294B">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Dashboard LSI">
 <title>Dashboard Manajemen LSI · Oktober 2026</title>
 <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
+<link rel="manifest" href="/manifest.webmanifest">
 <link rel="stylesheet" href="assets/styles.css">
 </head><body>
 <div class="login" id="login" hidden>
@@ -126,6 +133,8 @@
 <div class="ov" id="ov" hidden><div class="dlg" role="dialog" aria-modal="true" aria-labelledby="dlgT" id="dlg">
  <div class="dh"><button class="bk" id="dlgBack" aria-label="Kembali" hidden>‹</button><div style="min-width:0"><h2 id="dlgT"></h2><p id="dlgS"></p></div><button class="x" id="dlgX" aria-label="Tutup (Esc)">×</button></div>
  <div class="db" id="dlgB" tabindex="-1"></div></div></div>
+<div id="netMsg" class="netmsg" hidden role="status"></div>
+<div id="swUpdate" class="swupd" hidden role="status"><span>Versi baru tersedia.</span><button type="button" id="swReload">Muat ulang</button></div>
 <script src="assets/config.js"></script>
 <script src="assets/app.js"></script>
 <script src="assets/loader.js"></script>
