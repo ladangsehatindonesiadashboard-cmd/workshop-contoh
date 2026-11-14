@@ -111,3 +111,15 @@ create table if not exists accurate_sync.runs (
   started_at timestamptz not null default now(),
   finished_at timestamptz
 );
+
+-- Progres backfill / cek ulang per bulan untuk edge function sync-accurate (mode pull).
+create table if not exists accurate_sync.period_state (
+  period text primary key check (period ~ '^\d{4}-(0[1-9]|1[0-2])$'),
+  complete boolean not null default false,
+  checked_at timestamptz,
+  built_at timestamptz,
+  docs int,
+  omzet bigint
+);
+alter table accurate_sync.period_state enable row level security;
+revoke all on accurate_sync.period_state from anon, authenticated;

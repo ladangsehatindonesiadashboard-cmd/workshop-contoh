@@ -14,7 +14,12 @@ import postgres from "npm:postgres@3.4.4";
 
 const CLIENT_ID = "432f96f6-4f33-4ddd-b52b-a59fdb774ed7";
 const DB_ID = 2685839; // PT LADANG SEHAT INDONESIA
-const FIXED_PERIODS = ["2026-10"];
+// Data penjualan riil di Accurate mulai Juni 2026. Faktur bertanggal 31/05/2026 adalah migrasi saldo awal
+// (invoiceDp, tanpa baris barang, salesAmountBase 0) sehingga Mei tidak disinkron.
+const START_PERIOD = "2026-06";
+const FULL_PERIOD = "2026-10"; // snapshot lengkap (non-penjualan) + basis urutan customer
+const CONC = 3;                 // detail.do paralel (Accurate memutus koneksi kalau terlalu banyak)
+const RECHECK_MS = 6 * 3600e3;  // bulan lama yang sudah lengkap dicek ulang (list.do lastUpdate) tiap 6 jam
 const FN_URL = "https://ecjhttvuvexdxklnalkz.supabase.co/functions/v1/sync-accurate";
 const READ_ONLY = /^\/accurate\/api\/[a-z-]+\/(list|detail)\.do$/;
 const SALES_KEYS = ["inv", "ret", "itl", "retd", "dinv", "customers", "sales_src"];
@@ -89,7 +94,7 @@ async function apiGet(db: Db, path: string, params: Record<string, string | stri
   for (let attempt = 0; attempt < 5; attempt++) {
     let r: Response;
     try {
-      r = await fetch(url, { method: "GET", redirect: "manual", headers: { Authorization: "Bearer " + db.token, "X-Session-ID": db.session } });
+      r = await fetch(url, { method: "GET", redirect: "manual", signal: AbortSignal.timeout(20_000), headers: { Authorization: "Bearer " + db.token, "X-Session-ID": db.session } });
     } catch (e) { // koneksi putus / reset dari server Accurate: tunggu lalu coba lagi
       if (attempt === 4) throw e;
       await new Promise((s) => setTimeout(s, 1500 * (attempt + 1)));
@@ -131,9 +136,9 @@ async function syncKind(db: Db, kind: string, period: string, deadline: number, 
   const have = new Map((await sql`select id, last_update from accurate_sync.docs where db_id=${DB_ID} and kind=${kind} and trans_date between ${isoFrom} and ${isoTo}`).map((r: any) => [Number(r.id), r.last_update]));
   const todo = list.filter((x) => have.get(Number(x.id)) !== x.lastUpdate);
   let done = 0, complete = true;
-  for (let i = 0; i < todo.length; i += 2) {
+  for (let i = 0; i < todo.length; i += CONC) {
     if (Date.now() > deadline) { complete = false; break; }
-    const batch = todo.slice(i, i + 2);
+    const batch = todo.slice(i, i + CONC);
     const det = await Promise.all(batch.map((x) => apiGet(db, `/accurate/api/${kind}/detail.do`, { id: String(x.id) })));
     for (let k = 0; k < batch.length; k++) {
       const x = batch[k], d = trim(kind, det[k].d);
@@ -203,31 +208,65 @@ async function mergeSnapshot(period: string, keys: Record<string, unknown>, labe
   if (!r.length) await sql`insert into public.dashboard_snapshots (period, label, data, updated_at) values (${period}, ${lab}, ${sql.json({ ...keys, sales_only: true } as any)}::jsonb, now())`;
 }
 async function baseCustomers(): Promise<string[]> {
-  const r = await sql`select data->'customers' c from public.dashboard_snapshots where period='2026-10'`;
+  const r = await sql`select data->'customers' c from public.dashboard_snapshots where period=${FULL_PERIOD}`;
   return (r[0]?.c as string[]) ?? [];
 }
 function currentPeriod() { const d = new Date(Date.now() + 7 * 3600e3); return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}`; }
+function addMonth(p: string, n: number) { const [y, m] = p.split("-").map(Number); const d = new Date(Date.UTC(y, m - 1 + n, 1)); return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}`; }
+function allPeriods() { const out: string[] = []; for (let p = START_PERIOD, cur = currentPeriod(); p <= cur; p = addMonth(p, 1)) out.push(p); return out; }
 
+// Tiap run: (1) bulan berjalan + bulan lalu selalu disegarkan; (2) sisa waktu dipakai backfill/cek ulang bulan lama
+// bergiliran: yang belum lengkap dulu (terbaru -> terlama), lalu yang lengkap tapi terakhir dicek > RECHECK_MS lalu.
+// Snapshot sebuah bulan hanya dibangun kalau semua dokumennya sudah tertarik, dan hanya bila ada perubahan.
 async function pull() {
-  const deadline = Date.now() + 55_000, stats: any = {};
+  const t0 = Date.now(), deadline = t0 + 85_000, stats: any = {};
   const db = await openDb();
-  const periods = [...new Set([...FIXED_PERIODS, currentPeriod()])];
-  const complete: Record<string, boolean> = {};
-  for (const p of periods) {
-    let ok = true;
-    for (const k of ["sales-invoice", "sales-return"]) ok = (await syncKind(db, k, p, deadline, stats)) && ok;
-    complete[p] = ok;
+  const periods = allPeriods(), cur = currentPeriod(), prev = addMonth(cur, -1);
+  const state: Map<string, any> = new Map((await sql`select period, complete, checked_at, built_at from accurate_sync.period_state`).map((r: any) => [r.period, r]));
+  const hot = periods.filter((p) => p === cur || p === prev);
+  const cold = periods.filter((p) => !hot.includes(p));
+  const coldTodo = [
+    ...cold.filter((p) => !state.get(p)?.complete).reverse(),
+    ...cold.filter((p) => state.get(p)?.complete && Date.now() - +new Date(state.get(p).checked_at ?? 0) > RECHECK_MS)
+      .sort((a, b) => +new Date(state.get(a).checked_at ?? 0) - +new Date(state.get(b).checked_at ?? 0)),
+  ];
+  const touched: string[] = [], complete: Record<string, boolean> = {}, changed: Record<string, boolean> = {};
+  for (const p of [...hot, ...coldTodo]) {
+    if (!hot.includes(p) && Date.now() > deadline - 8_000) break; // sisakan waktu; lanjut di run berikutnya
+    let ok = true, ch = false;
+    for (const k of ["sales-invoice", "sales-return"]) {
+      ok = (await syncKind(db, k, p, deadline, stats)) && ok;
+      const s = stats[`${p}:${k}`]; ch = ch || s.fetched > 0 || s.deleted > 0;
+    }
+    touched.push(p); complete[p] = ok; changed[p] = ch;
+    await sql`insert into accurate_sync.period_state (period, complete, checked_at) values (${p}, ${ok}, now())
+      on conflict (period) do update set complete=excluded.complete, checked_at=excluded.checked_at`;
   }
-  // Kalau masih ada dokumen yang belum ditarik (batas waktu), simpan progres saja; snapshot dibangun di run berikutnya.
-  if (Object.values(complete).some((c) => !c)) { stats.partial = true; return stats; }
   stats.items_refreshed = await ensureItems(db);
-  let base = await baseCustomers();
-  for (const p of periods) {
-    const keys = await buildKeys(p, base, complete[p]);
-    if (p === "2026-10") base = keys.customers as string[];
+  // Bangun snapshot untuk bulan yang lengkap & (berubah / belum pernah dibangun / bulan berjalan). FULL_PERIOD dulu (basis customer).
+  const rank = (p: string) => (p === FULL_PERIOD ? 0 : p === cur ? 1 : p === prev ? 2 : 3);
+  const st2: Map<string, any> = new Map((await sql`select period, complete, built_at from accurate_sync.period_state`).map((r: any) => [r.period, r]));
+  const toBuild = periods.filter((p) => st2.get(p)?.complete &&
+      (!st2.get(p)?.built_at || (touched.includes(p) && (changed[p] || p === cur || stats.items_refreshed > 0))))
+    .sort((a, b) => rank(a) - rank(b) || b.localeCompare(a));
+  let base = await baseCustomers(), built = 0;
+  for (const p of toBuild) {
+    // batas idle 150 dtk & CPU worker: maksimal 3 snapshot per run, sisanya (built_at masih null) di run berikutnya
+    if (Date.now() - t0 > 110_000 || built >= 3) { stats.build_deferred = toBuild.slice(built); break; }
+    built++;
+    const keys = await buildKeys(p, base, true);
+    if (p === FULL_PERIOD) base = keys.customers as string[];
     await mergeSnapshot(p, keys);
-    stats[`${p}:omzet`] = (keys.sales_src as any).omzet;
+    const src = keys.sales_src as any;
+    await sql`update accurate_sync.period_state set built_at=now(), docs=${src.inv + src.ret}, omzet=${src.omzet} where period=${p}`;
+    stats[`${p}:omzet`] = src.omzet;
   }
+  if (stats.build_deferred) await sql`update accurate_sync.period_state set built_at=null where period = any(${stats.build_deferred})`;
+  const pend = touched.filter((p) => !complete[p]);
+  const notYet = periods.filter((p) => !touched.includes(p) && !state.get(p)?.complete);
+  if (pend.length || notYet.length) stats.partial = true;
+  stats.backfill_pending = [...new Set([...pend, ...notYet])];
+  stats.ms = Date.now() - t0;
   return stats;
 }
 
